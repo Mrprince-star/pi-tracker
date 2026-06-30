@@ -40,8 +40,18 @@ export async function initPi({ sandbox = true } = {}) {
     console.warn("Pi SDK never became available — are we running inside Pi Browser?");
     return false;
   }
-  window.Pi.init({ version: "2.0", sandbox });
-  return true;
+  try {
+    // Some SDK builds perform internal async setup after init() is called.
+    // Awaiting it (even though it's not officially documented as async)
+    // and adding a brief settle delay avoids racing authenticate() against
+    // init() before the SDK considers itself ready.
+    await Promise.resolve(window.Pi.init({ version: "2.0", sandbox }));
+    await new Promise((r) => setTimeout(r, 300));
+    return true;
+  } catch (err) {
+    console.error("Pi.init() threw an error:", err);
+    return false;
+  }
 }
 
 /**
