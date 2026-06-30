@@ -7,7 +7,7 @@ rate, follow role progress, and check off the Mainnet checklist.
 
 - **Real**: every calculator and tool, snapshot history, the historical
   chart, CSV export, theme switching, and the actual Pi payment flow (once
-  deployed and opened inside Pi Browser).
+  deployed and opened inside Pi Browser from your mobile phone).
 - **Not yet live**: ads. The interstitial ad call only fires once this app
   is approved for the Pi Ad Network — until then it silently does nothing.
 
