@@ -178,6 +178,7 @@ export default function PiTracker() {
   const [username, setUsername] = useState(null);
   const [piReady, setPiReady] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authDebug, setAuthDebug] = useState(null);
 
   const [mined, setMined] = useState("");
   const [migrated, setMigrated] = useState("");
@@ -244,12 +245,16 @@ export default function PiTracker() {
       setPiReady(ready);
       if (ready) {
         const result = await authenticateWithPi();
-        if (!cancelled && result?.username) {
+        if (cancelled) return;
+        setAuthDebug(result);
+        if (result?.username) {
           setUsername(result.username);
           setIsAuthenticated(true);
-        } else if (!cancelled) {
-          console.warn("Pi auth completed without a username — check Developer Portal sandbox/app settings.");
+        } else {
+          console.warn("Pi auth completed without a username:", result?.error);
         }
+      } else {
+        setAuthDebug({ error: "Pi SDK never loaded (window.Pi missing)." });
       }
     })();
     return () => { cancelled = true; };
@@ -387,6 +392,11 @@ export default function PiTracker() {
       {/* DASHBOARD */}
       {page === "dashboard" && (
         <div style={{ padding: "16px 16px 50px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {authDebug?.error && (
+            <div style={{ background: "#FFF3CD", border: "1px solid #E0B341", borderRadius: 12, padding: "10px 12px", fontSize: 11.5, color: "#5C4400", lineHeight: 1.5, wordBreak: "break-word" }}>
+              <strong>Debug — Pi auth status:</strong> piReady={String(piReady)}, error: {authDebug.error}
+            </div>
+          )}
           <Card style={{ background: `linear-gradient(135deg, ${COLORS.ink} 0%, ${COLORS.navyLight} 100%)`, border: "none" }}>
             <div style={{ fontFamily: "'Fraunces', serif", fontSize: 16.5, fontWeight: 600, color: "white", marginBottom: 6 }}>
               {username ? `Welcome back, ${username}` : "Welcome to Pi Tracker"}

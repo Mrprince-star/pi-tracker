@@ -55,21 +55,20 @@ export async function initPi({ sandbox = true } = {}) {
 export async function authenticateWithPi() {
   if (!isPiAvailable()) {
     console.warn("authenticateWithPi: Pi SDK not available.");
-    return null;
+    return { username: null, uid: null, error: "Pi SDK not available on window." };
   }
   try {
     const scopes = ["username", "payments"];
     const onIncompletePaymentFound = (payment) => {
-      // A payment from a previous session never finished. Hand it to our
-      // backend to resolve, so it doesn't block future payments.
       reportIncompletePayment(payment);
     };
     const authResult = await window.Pi.authenticate(scopes, onIncompletePaymentFound);
     console.log("Pi auth success:", authResult);
-    return { username: authResult.user?.username ?? null, uid: authResult.user?.uid ?? null };
+    return { username: authResult.user?.username ?? null, uid: authResult.user?.uid ?? null, error: null };
   } catch (err) {
     console.error("Pi authentication failed or was cancelled:", err);
-    return null;
+    const message = err?.message || err?.error || (typeof err === "string" ? err : JSON.stringify(err));
+    return { username: null, uid: null, error: message || "Unknown auth error" };
   }
 }
 
