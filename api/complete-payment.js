@@ -3,14 +3,39 @@
 // the transaction is submitted to the Pi blockchain, our backend must call
 // Pi's "complete" endpoint with the transaction id to finalize the payment.
 //
-// Setup: same PI_API_KEY environment variable as approve-payment.js.
+// It also records that this Pi user has tipped, in Upstash Redis, so the
+// "tipped" state persists across logins/devices instead of resetting to
+// locked every time the app reloads (React state alone doesn't survive a
+// refresh, and there's no source of truth for "did this person already pay"
+// without storing it somewhere server-side).
+//
+// Setup:
+// - PI_API_KEY: same as approve-payment.js
+// - KV_REST_API_URL and KV_REST_API_TOKEN: auto-injected by Vercel once the
+//   "Upstash for Redis" integration (Marketplace > Storage) is connected to
+//   this project. Vercel names these KV_REST_API_* rather than the more
+//   generic UPSTASH_REDIS_REST_* names Upstash itself uses elsewhere.
+
+async function recordTip(uid) {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token || !uid) return; // Not configured yet, or no uid available — skip quietly.
+  try {
+    await fetch(`${url}/set/tipped:${encodeURIComponent(uid)}/true`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    console.error("Failed to record tip in Upstash:", err);
+    // Payment already succeeded on-chain — don't fail the request over this.
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { paymentId, txid } = req.body || {};
+  const { paymentId, txid, uid } = req.body || {};
   if (!paymentId || !txid) {
     return res.status(400).json({ error: "Missing paymentId or txid" });
   }
@@ -31,12 +56,12 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: "Failed to complete payment with Pi Platform API" });
     }
 
-    // In a production app, this is also the right place to record the tip
-    // (e.g. in a database) so "tipped" status can persist across sessions
-    // instead of resetting if the user reloads the app.
+    await recordTip(uid);
+
     return res.status(200).json({ completed: true });
   } catch (err) {
     console.error("complete-payment handler error:", err);
     return res.status(500).json({ error: "Internal error completing payment" });
   }
 }
+
