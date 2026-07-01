@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { initPi, authenticateWithPi, createPiPayment, maybeShowInterstitialAd } from "./pi.js";
+import { initPi, authenticateWithPi, createPiPayment, maybeShowInterstitialAd, checkTipStatus } from "./pi.js";
 import { LANGUAGES, getTranslator, detectLanguage } from "./translations.js";
 
 const APPROX_CIRCULATING = 870_000_000;
@@ -195,6 +195,7 @@ export default function PiTracker() {
   }
   const [menuOpen, setMenuOpen] = useState(false);
   const [username, setUsername] = useState(null);
+  const [uid, setUid] = useState(null);
   const [piReady, setPiReady] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authDebug, setAuthDebug] = useState(null);
@@ -268,7 +269,12 @@ export default function PiTracker() {
         setAuthDebug(result);
         if (result?.username) {
           setUsername(result.username);
+          setUid(result.uid);
           setIsAuthenticated(true);
+          if (result.uid) {
+            const alreadyTipped = await checkTipStatus(result.uid);
+            if (!cancelled && alreadyTipped) setTipped(true);
+          }
         } else {
           console.warn("Pi auth completed without a username:", result?.error);
         }
@@ -326,7 +332,7 @@ export default function PiTracker() {
       setToast("Couldn't verify your Pi account yet — please reopen the app and try again.");
       return;
     }
-    createPiPayment(1, "Tip for Pioneer Tracker app", {
+    createPiPayment(1, "Tip for Pioneer Tracker app", uid, {
       onSuccess: () => {
         setTipped(true);
         setToast("Thank you 💛 Extras unlocked");

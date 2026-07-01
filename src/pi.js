@@ -93,7 +93,7 @@ export async function authenticateWithPi() {
  * @param {string} memo - shown to the user in the confirmation UI
  * @param {object} callbacks - { onSuccess, onCancel, onError }
  */
-export function createPiPayment(amount, memo, { onSuccess, onCancel, onError } = {}) {
+export function createPiPayment(amount, memo, uid, { onSuccess, onCancel, onError } = {}) {
   if (!isPiAvailable()) {
     onError?.(new Error("Pi SDK not available — open this app inside Pi Browser."));
     return;
@@ -115,7 +115,7 @@ export function createPiPayment(amount, memo, { onSuccess, onCancel, onError } =
           await fetch("/api/complete-payment", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ paymentId, txid }),
+            body: JSON.stringify({ paymentId, txid, uid }),
           });
           onSuccess?.({ paymentId, txid });
         },
@@ -132,6 +132,23 @@ export function createPiPayment(amount, memo, { onSuccess, onCancel, onError } =
   } catch (err) {
     console.error("createPiPayment threw synchronously:", err);
     onError?.(err);
+  }
+}
+
+/**
+ * Checks whether a given Pi user has already tipped, so unlocked extras
+ * (charts, CSV export, reminders, themes) can stay unlocked across logins
+ * and devices rather than resetting on every fresh page load.
+ */
+export async function checkTipStatus(uid) {
+  if (!uid) return false;
+  try {
+    const res = await fetch(`/api/check-tip-status?uid=${encodeURIComponent(uid)}`);
+    const data = await res.json();
+    return !!data?.tipped;
+  } catch (err) {
+    console.error("checkTipStatus failed:", err);
+    return false;
   }
 }
 
