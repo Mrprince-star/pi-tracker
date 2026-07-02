@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { initPi, authenticateWithPi, createPiPayment, maybeShowInterstitialAd, checkTipStatus } from "./pi.js";
 import { LANGUAGES, getTranslator, detectLanguage } from "./translations.js";
 
@@ -94,6 +94,32 @@ function Field({ label, value, onChange, placeholder = "0" }) {
     </div>
   );
 }
+// Small helpers so every persisted field doesn't need its own try/catch —
+// localStorage can throw in rare cases (private browsing, storage disabled),
+// and these just fail quietly rather than breaking the app.
+function loadStored(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw !== null ? raw : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function loadStoredJSON(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw !== null ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function saveStored(key, value) {
+  try { window.localStorage.setItem(key, value); } catch {}
+}
+function saveStoredJSON(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
 function ChecklistRow({ label, desc, checked, onToggle }) {
   return (
     <div onClick={onToggle} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "10px 0", cursor: "pointer" }}>
@@ -200,9 +226,15 @@ export default function PiTracker() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authDebug, setAuthDebug] = useState(null);
 
-  const [mined, setMined] = useState("");
-  const [migrated, setMigrated] = useState("");
-  const [locked, setLocked] = useState("");
+  const [mined, setMined] = useState(() => {
+    try { return window.localStorage.getItem("pi-tracker-mined") || ""; } catch { return ""; }
+  });
+  const [migrated, setMigrated] = useState(() => {
+    try { return window.localStorage.getItem("pi-tracker-migrated") || ""; } catch { return ""; }
+  });
+  const [locked, setLocked] = useState(() => {
+    try { return window.localStorage.getItem("pi-tracker-locked") || ""; } catch { return ""; }
+  });
   const [priceUsd] = useState(0.13);
   const [tipped, setTipped] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
@@ -211,18 +243,18 @@ export default function PiTracker() {
   const [toast, setToast] = useState(null);
   const [history, setHistory] = useState([]);
 
-  const [baseRate, setBaseRate] = useState("0.39");
-  const [circleCount, setCircleCount] = useState("0");
-  const [referralCount, setReferralCount] = useState("0");
+  const [baseRate, setBaseRate] = useState(() => loadStored("pi-tracker-baseRate", "0.39"));
+  const [circleCount, setCircleCount] = useState(() => loadStored("pi-tracker-circleCount", "0"));
+  const [referralCount, setReferralCount] = useState(() => loadStored("pi-tracker-referralCount", "0"));
 
   const [convAmount, setConvAmount] = useState("100");
   const [convCurrency, setConvCurrency] = useState("USD");
 
-  const [daysMining, setDaysMining] = useState("0");
-  const [hasReferrals, setHasReferrals] = useState(false);
-  const [hasNode, setHasNode] = useState(false);
+  const [daysMining, setDaysMining] = useState(() => loadStored("pi-tracker-daysMining", "0"));
+  const [hasReferrals, setHasReferrals] = useState(() => loadStoredJSON("pi-tracker-hasReferrals", false));
+  const [hasNode, setHasNode] = useState(() => loadStoredJSON("pi-tracker-hasNode", false));
 
-  const [checklist, setChecklist] = useState({ wallet: false, kyc: false, lockup: false, security: false });
+  const [checklist, setChecklist] = useState(() => loadStoredJSON("pi-tracker-checklist", { wallet: false, kyc: false, lockup: false, security: false }));
   const [activeTheme, setActiveTheme] = useState("navy");
   const [, setThemeVersion] = useState(0);
 
@@ -291,6 +323,53 @@ export default function PiTracker() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  const [lastUpdated, setLastUpdated] = useState(() => loadStored("pi-tracker-lastUpdated", null));
+
+  // Persist balance inputs so they're still there next time the app opens —
+  // no need to re-type everything just to check on progress. Purely local;
+  // nothing here is sent anywhere. Editing any balance also stamps
+  // "last updated now", since that's the moment the person's real numbers
+  // most likely changed.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    saveStored("pi-tracker-mined", mined);
+    if (!firstRender.current) stampUpdated();
+  }, [mined]);
+  useEffect(() => {
+    saveStored("pi-tracker-migrated", migrated);
+    if (!firstRender.current) stampUpdated();
+  }, [migrated]);
+  useEffect(() => {
+    saveStored("pi-tracker-locked", locked);
+    if (!firstRender.current) stampUpdated();
+  }, [locked]);
+  useEffect(() => { firstRender.current = false; }, []);
+
+  function stampUpdated() {
+    const now = new Date().toISOString();
+    setLastUpdated(now);
+    saveStored("pi-tracker-lastUpdated", now);
+  }
+
+  // Mining calculator inputs — slow-changing facts about the person, worth
+  // remembering, unlike the currency converter which is a quick one-off
+  // lookup that shouldn't linger with stale numbers on return.
+  useEffect(() => { saveStored("pi-tracker-baseRate", baseRate); }, [baseRate]);
+  useEffect(() => { saveStored("pi-tracker-circleCount", circleCount); }, [circleCount]);
+  useEffect(() => { saveStored("pi-tracker-referralCount", referralCount); }, [referralCount]);
+
+  // Role progress inputs
+  useEffect(() => { saveStored("pi-tracker-daysMining", daysMining); }, [daysMining]);
+  useEffect(() => { saveStoredJSON("pi-tracker-hasReferrals", hasReferrals); }, [hasReferrals]);
+  useEffect(() => { saveStoredJSON("pi-tracker-hasNode", hasNode); }, [hasNode]);
+
+  // Mainnet checklist
+  useEffect(() => { saveStoredJSON("pi-tracker-checklist", checklist); }, [checklist]);
+
+  const daysSinceUpdate = lastUpdated
+    ? Math.floor((Date.now() - new Date(lastUpdated).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+
   const minedNum = parseFloat(mined) || 0;
   const migratedNum = parseFloat(migrated) || 0;
   const lockedNum = parseFloat(locked) || 0;
@@ -345,6 +424,12 @@ export default function PiTracker() {
     });
   }
   function handleSaveReminder() { if (!reminderDate) return; setSavedReminder(reminderDate); setToast("Reminder saved"); }
+  function clearBalances() {
+    setMined(""); setMigrated(""); setLocked("");
+    setLastUpdated(null);
+    saveStored("pi-tracker-lastUpdated", "");
+    setToast(t("fieldsCleared"));
+  }
 
   const base = parseFloat(baseRate) || 0;
   const circles = Math.min(parseInt(circleCount) || 0, 5);
@@ -454,6 +539,12 @@ export default function PiTracker() {
             </div>
           </div>
 
+          {lastUpdated && daysSinceUpdate !== null && daysSinceUpdate >= 3 && (
+            <div style={{ background: "#FFF3CD", border: "1px solid #E0B341", borderRadius: 12, padding: "10px 12px", fontSize: 12, color: "#5C4400", lineHeight: 1.5 }}>
+              {t("checkInReminder", { days: daysSinceUpdate })}
+            </div>
+          )}
+
           <Card>
             <Label>{t("yourBalances")}</Label>
             <p style={{ fontSize: 12.5, color: COLORS.textMuted, margin: "-2px 0 14px", lineHeight: 1.5 }}>{t("balancesNote")}</p>
@@ -464,6 +555,17 @@ export default function PiTracker() {
               style={{ width: "100%", padding: "11px", borderRadius: 12, border: `1.5px solid ${COLORS.ink}`, background: "transparent", color: totalHoldings > 0 ? COLORS.ink : COLORS.textMuted, fontWeight: 600, fontSize: 13, cursor: totalHoldings > 0 ? "pointer" : "default", marginTop: 4 }}>
               {t("saveSnapshot")}
             </button>
+            {(minedNum > 0 || migratedNum > 0 || lockedNum > 0) && (
+              <button onClick={clearBalances}
+                style={{ width: "100%", padding: "9px", border: "none", background: "transparent", color: COLORS.textMuted, fontWeight: 500, fontSize: 12, cursor: "pointer", marginTop: 4, textDecoration: "underline" }}>
+                {t("clearFields")}
+              </button>
+            )}
+            {lastUpdated && (
+              <p style={{ fontSize: 10.5, color: COLORS.textMuted, textAlign: "center", margin: "8px 0 0" }}>
+                {t("lastUpdated", { date: new Date(lastUpdated).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) })}
+              </p>
+            )}
           </Card>
 
           <Card>
